@@ -1,0 +1,36 @@
+name: Nginx CI
+
+on:
+  push:
+    branches:
+      - develop
+      - 'release/v*.*.*'
+
+    paths:
+      - 'infrastructure/nginx/**'
+      - '.github/workflows/nginx-ci.yml'
+
+jobs:
+  nginx:
+    name: Validate Nginx
+    runs-on: ubuntu-22.04
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build Nginx image
+        run: >
+          docker build
+          -t piscinapp-nginx:ci
+          ./infrastructure/nginx
+
+      - name: Validate Nginx configuration
+        run: >
+          docker run
+          --rm
+          piscinapp-nginx:ci
+          nginx -t
