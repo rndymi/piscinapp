@@ -35,10 +35,10 @@ Nginx acts as the backend infrastructure entry point, while authentication, auth
 PiscinApp distinguishes four execution contexts:
 
 ```text
-DEV
-TEST
-FAKE_PROD
-PROD
+    DEV
+    TEST
+    FAKE_PROD
+    PROD
 ```
 
 - **DEV** — normal local development of each component.
@@ -97,9 +97,9 @@ The current repository owns the shared Nginx backend edge configuration and its 
 The shared infrastructure direction is organized around:
 
 ```text
-infrastructure/
-├── nginx/
-└── floci/
+    infrastructure/
+    ├── nginx/
+    └── floci/
 ```
 
 Floci is consumed as an external containerized tool; its source code is not copied into PiscinApp.
@@ -108,14 +108,111 @@ FAKE_PROD automation is kept deliberately lightweight and focused on reproducibl
 
 ---
 
+## FAKE_PROD execution
+
+FAKE_PROD validates the production-shaped PiscinApp backend locally or in CI without requiring a real AWS account.
+
+The current validation uses:
+
+```text
+    Docker
+    +
+    Floci
+    +
+    emulated ECR
+    +
+    emulated ECS
+    +
+    emulated RDS PostgreSQL
+    +
+    Nginx
+    +
+    piscinapp-core
+```
+
+---
+
+## Workspace
+
+For local execution, the recommended workspace layout is:
+
+```text
+    PiscinAppFolder/
+    ├── piscinapp/
+    └── piscinapp-core/
+```
+
+The repositories remain independent. The shared **FAKE_PROD** scripts only use this layout to locate Core when no explicit path is provided.
+
+---
+
+## Prerequisites
+
+The local machine requires:
+
+- Docker Desktop or Docker Engine with Docker Compose;
+- Java 21 with `keytool`;
+- AWS CLI v2.
+
+On Windows, AWS CLI can be installed with:
+
+```pwsh
+    winget install -e --id Amazon.AWSCLI
+```
+
+No real AWS account or AWS credentials are required.
+
+FAKE_PROD uses only fictitious emulator credentials and explicitly targets the local Floci endpoint.
+
+---
+
+## Run
+
+From the piscinapp repository:
+
+```pwsh
+    .\infrastructure\scripts\fake-prod\run.ps1
+```
+
+This command:
+
+```text
+    starts Floci
+    → provisions the required emulated AWS services
+    → builds Core and Nginx
+    → publishes both images to emulated ECR
+    → runs the backend through emulated ECS
+    → connects Core to emulated RDS PostgreSQL
+    → validates the environment through Nginx
+    → cleans up
+```
+
+To leave the environment running for inspection:
+
+```pwsh
+    .\infrastructure\scripts\fake-prod\run.ps1 -KeepRunning
+```
+
+Stop it afterwards with:
+
+```pwsh
+    .\infrastructure\scripts\fake-prod\stop.ps1
+```
+
+A successful FAKE_PROD execution validates the emulated deployment contract. It is not a real AWS production deployment.
+
+
+
+---
+
 ## Nginx
 
 Nginx remains the backend entry boundary:
 
 ```text
-piscinapp-control ─┐
-                   ├→ Nginx → piscinapp-core
-piscinapp-field ───┘
+    piscinapp-control ─┐
+                    ├→ Nginx → piscinapp-core
+    piscinapp-field ───┘
 ```
 
 Its responsibilities are infrastructure-oriented, such as reverse proxying, routing, forwarded headers and explicitly configured edge controls.

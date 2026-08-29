@@ -1,0 +1,73 @@
+name: FAKE_PROD Validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      core_ref:
+        description: Core Git branch, tag or commit to validate
+        required: true
+        default: develop
+        type: string
+
+jobs:
+  fake-prod:
+    name: Validate FAKE_PROD
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout ecosystem repository
+        uses: actions/checkout@v4
+
+      - name: Checkout Core repository
+        uses: actions/checkout@v4
+
+        with:
+          repository: rndymi/piscinapp-core
+          ref: ${{ inputs.core_ref }}
+          path: piscinapp-core
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v5
+
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Show execution tools
+        run: |
+          docker --version
+          docker compose version
+          aws --version
+          java -version
+          keytool -help >/dev/null
+
+      - name: Start Floci
+        shell: pwsh
+        run: |
+          ./infrastructure/scripts/fake-prod/start.ps1
+
+      - name: Provision FAKE_PROD
+        shell: pwsh
+        run: |
+          ./infrastructure/scripts/fake-prod/provision.ps1
+
+      - name: Deploy Core and Nginx
+        shell: pwsh
+        run: |
+          ./infrastructure/scripts/fake-prod/deploy.ps1 `
+            -CoreRepositoryPath "${{ github.workspace }}/piscinapp-core"
+
+      - name: Validate FAKE_PROD
+        shell: pwsh
+        run: |
+          ./infrastructure/scripts/fake-prod/validate.ps1
+
+      - name: Cleanup FAKE_PROD
+        if: always()
+        shell: pwsh
+        run: |
+          ./infrastructure/scripts/fake-prod/stop.ps1
