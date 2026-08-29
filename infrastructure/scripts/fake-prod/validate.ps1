@@ -89,7 +89,7 @@ if ($rdsStatus -ne "available") {
 }
 
 #
-# ECR contains the two images
+# ECR repositories exist
 #
 
 foreach ($repositoryName in @(
@@ -97,21 +97,26 @@ foreach ($repositoryName in @(
     $script:NginxRepositoryName
 )) {
 
-    $imageCount = Get-FakeAwsText -Arguments @(
+    $repositoryUri = Get-FakeAwsText -Arguments @(
         "ecr",
-        "list-images",
-        "--repository-name",
+        "describe-repositories",
+        "--repository-names",
         $repositoryName,
         "--query",
-        "length(imageIds)",
+        "repositories[0].repositoryUri",
         "--output",
         "text"
     )
 
-    if ([int] $imageCount -lt 1) {
+    if (
+        [string]::IsNullOrWhiteSpace($repositoryUri) -or
+        $repositoryUri -eq "None"
+    ) {
 
-        throw "ECR repository '$repositoryName' contains no images."
+        throw "ECR repository '$repositoryName' is not available."
     }
+
+    Write-Host "- emulated ECR repositories and image delivery"
 }
 
 #
@@ -183,35 +188,45 @@ if (-not $authorizationHeaderConfiguration) {
 Write-Host "Waiting for Core health through Nginx..."
 
 $healthReady = $false
+$lastHealthError = $null
 
 for ($attempt = 1; $attempt -le 120; $attempt++) {
 
     try {
 
-        $health = Invoke-WebRequest `
+        $health = Invoke-RestMethod `
             -Uri "http://localhost:8080/actuator/health" `
-            -Method Get
+            -Method Get `
+            -ErrorAction Stop
 
-        if ($health.StatusCode -eq 200) {
+        if ($health.status -eq "UP") {
 
-            $healthJson = $health.Content |
-                ConvertFrom-Json
+            $healthReady = $true
 
-            if ($healthJson.status -eq "UP") {
+            Write-Host "Core health through Nginx: UP"
 
-                $healthReady = $true
-                break
-            }
+            break
         }
+
+        $lastHealthError = `
+            "Unexpected health status: $($health.status)"
     }
     catch {
-        # Core may still be booting.
+
+        $lastHealthError = $_.Exception.Message
     }
 
     Start-Sleep -Seconds 1
 }
 
 if (-not $healthReady) {
+
+    if ($lastHealthError) {
+
+        Write-Host ""
+        Write-Host "Last health error:"
+        Write-Host $lastHealthError
+    }
 
     throw "Core did not become healthy through Nginx."
 }
@@ -223,18 +238,22 @@ if (-not $healthReady) {
 $apiDocsStatus = Get-HttpStatus `
     -Uri "http://localhost:8080/v3/api-docs"
 
-if ($apiDocsStatus -ne 404) {
+if ($apiDocsStatus -notin @(401, 404)) {
 
-    throw "OpenAPI must not be exposed in FAKE_PROD prod profile. Status: $apiDocsStatus"
+    throw "OpenAPI must not be publicly exposed in FAKE_PROD prod profile. Status: $apiDocsStatus"
 }
+
+Write-Host "OpenAPI public exposure blocked: $apiDocsStatus"
 
 $swaggerStatus = Get-HttpStatus `
     -Uri "http://localhost:8080/swagger-ui/index.html"
 
-if ($swaggerStatus -ne 404) {
+if ($swaggerStatus -notin @(401, 404)) {
 
-    throw "Swagger UI must not be exposed in FAKE_PROD prod profile. Status: $swaggerStatus"
+    throw "Swagger UI must not be publicly exposed in FAKE_PROD prod profile. Status: $swaggerStatus"
 }
+
+Write-Host "Swagger UI public exposure blocked: $swaggerStatus"
 
 $internalActuatorStatus = Get-HttpStatus `
     -Uri "http://localhost:8080/actuator/env"

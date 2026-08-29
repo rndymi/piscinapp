@@ -375,6 +375,7 @@ $taskDefinition = @{
 
                 @{
                     containerPort = 8081
+                    hostPort      = 8081
                     protocol      = "tcp"
                 }
             )
@@ -387,10 +388,6 @@ $taskDefinition = @{
             image = $nginxImage
 
             essential = $true
-
-            links = @(
-                "core:core"
-            )
 
             portMappings = @(
 

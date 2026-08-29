@@ -44,15 +44,21 @@ foreach ($repositoryName in @(
 # RDS PostgreSQL
 #
 
-& aws `
-    --endpoint-url $script:FlociEndpoint `
-    --region $script:AwsRegion `
-    rds `
-    describe-db-instances `
-    --db-instance-identifier $script:DbIdentifier `
-    *> $null
+$dbInstanceIdentifier = Get-FakeAwsText -Arguments @(
+    "rds",
+    "describe-db-instances",
+    "--query",
+    "DBInstances[?DBInstanceIdentifier=='$($script:DbIdentifier)'].DBInstanceIdentifier | [0]",
+    "--output",
+    "text"
+)
 
-if ($LASTEXITCODE -ne 0) {
+$dbExists = (
+    -not [string]::IsNullOrWhiteSpace($dbInstanceIdentifier) -and
+    $dbInstanceIdentifier -ne "None"
+)
+
+if (-not $dbExists) {
 
     Write-Host ""
     Write-Host "Creating RDS PostgreSQL instance..."
@@ -67,6 +73,8 @@ if ($LASTEXITCODE -ne 0) {
         "db.t3.micro",
         "--engine",
         "postgres",
+        "--engine-version",
+        "17.11",
         "--allocated-storage",
         "20",
         "--db-name",
@@ -79,7 +87,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 else {
 
-    Write-Host "RDS instance already exists."
+    Write-Host "RDS instance already exists: $dbInstanceIdentifier"
 }
 
 Write-Host ""
@@ -87,20 +95,30 @@ Write-Host "Waiting for RDS PostgreSQL..."
 Write-Host ""
 
 $databaseReady = $false
+$lastStatus = $null
 
 for ($attempt = 1; $attempt -le 90; $attempt++) {
 
-    $status = & aws `
-        --endpoint-url $script:FlociEndpoint `
-        --region $script:AwsRegion `
-        rds `
-        describe-db-instances `
-        --db-instance-identifier $script:DbIdentifier `
-        --query "DBInstances[0].DBInstanceStatus" `
-        --output text `
-        2>$null
+    $status = Get-FakeAwsText -Arguments @(
+        "rds",
+        "describe-db-instances",
+        "--query",
+        "DBInstances[?DBInstanceIdentifier=='$($script:DbIdentifier)'].DBInstanceStatus | [0]",
+        "--output",
+        "text"
+    )
 
-    if ($LASTEXITCODE -eq 0 -and $status -eq "available") {
+    if (
+        -not [string]::IsNullOrWhiteSpace($status) -and
+        $status -ne "None" -and
+        $status -ne $lastStatus
+    ) {
+
+        Write-Host "RDS status: $status"
+        $lastStatus = $status
+    }
+
+    if ($status -eq "available") {
 
         $databaseReady = $true
         break
@@ -110,6 +128,18 @@ for ($attempt = 1; $attempt -le 90; $attempt++) {
 }
 
 if (-not $databaseReady) {
+
+    $currentInstances = Get-FakeAwsText -Arguments @(
+        "rds",
+        "describe-db-instances",
+        "--output",
+        "json"
+    )
+
+    Write-Host ""
+    Write-Host "Current RDS state:"
+    Write-Host $currentInstances
+    Write-Host ""
 
     throw "RDS PostgreSQL did not become available."
 }
