@@ -1,0 +1,31 @@
+services:
+  floci:
+    image: floci/floci:1.5.34
+    container_name: piscinapp-floci
+
+    ports:
+      - "4566:4566"
+      - "7001-7099:7001-7099"
+
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+    environment:
+      FLOCI_DEFAULT_REGION: us-east-1
+
+      FLOCI_HOSTNAME: floci
+      FLOCI_BASE_URL: http://floci:4566
+
+      FLOCI_SERVICES_DOCKER_NETWORK: piscinapp-fake-prod
+
+      FLOCI_SERVICES_RDS_PROXY_BASE_PORT: "7001"
+      FLOCI_SERVICES_RDS_DEFAULT_POSTGRES_IMAGE: postgres:17.11
+
+      FLOCI_STORAGE_MODE: memory
+
+    networks:
+      - piscinapp-fake-prod
+
+networks:
+  piscinapp-fake-prod:
+    name: piscinapp-fake-prod

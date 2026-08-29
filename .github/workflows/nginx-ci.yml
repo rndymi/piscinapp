@@ -3,12 +3,13 @@ name: Nginx CI
 on:
   push:
     branches:
-      - develop
-      - 'release/v*.*.*'
+      - main
 
     paths:
       - 'infrastructure/nginx/**'
       - '.github/workflows/nginx-ci.yml'
+
+  workflow_dispatch:
 
 jobs:
   nginx:
@@ -32,5 +33,6 @@ jobs:
         run: >
           docker run
           --rm
+          --add-host core:127.0.0.1
           piscinapp-nginx:ci
           nginx -t
