@@ -341,6 +341,16 @@ $taskDefinition = @{
                 },
 
                 @{
+                    name  = "PISCINAPP_BOOTSTRAP_ADMIN_USERNAME"
+                    value = $script:BootstrapAdminUsername
+                },
+
+                @{
+                    name  = "PISCINAPP_BOOTSTRAP_ADMIN_PASSWORD"
+                    value = $script:BootstrapAdminPassword
+                },
+
+                @{
                     name  = "PISCINAPP_SECURITY_ISSUER"
                     value = "http://localhost:8080"
                 },

@@ -17,6 +17,9 @@ $script:DbName = "piscinapp"
 $script:DbUsername = "piscinapp"
 $script:DbPassword = "piscinapp-fake-prod"
 
+$script:BootstrapAdminUsername = "fake.prod.admin"
+$script:BootstrapAdminPassword = "fake-prod-admin-password"
+
 # Credenciales exclusivamente ficticias para el emulador local.
 $env:AWS_ACCESS_KEY_ID = "test"
 $env:AWS_SECRET_ACCESS_KEY = "test"

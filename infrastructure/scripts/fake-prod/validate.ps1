@@ -167,6 +167,24 @@ if (-not $environment.ContainsKey("DATABASE_URL")) {
     throw "DATABASE_URL is not configured."
 }
 
+if (
+    -not $environment.ContainsKey(
+        "PISCINAPP_BOOTSTRAP_ADMIN_USERNAME"
+    )
+) {
+
+    throw "PISCINAPP_BOOTSTRAP_ADMIN_USERNAME is not configured."
+}
+
+if (
+    -not $environment.ContainsKey(
+        "PISCINAPP_BOOTSTRAP_ADMIN_PASSWORD"
+    )
+) {
+
+    throw "PISCINAPP_BOOTSTRAP_ADMIN_PASSWORD is not configured."
+}
+
 #
 # Nginx Authorization propagation contract
 #
