@@ -57,7 +57,7 @@ if ($LASTEXITCODE -ne 0) {
 
 if ([string]::IsNullOrWhiteSpace($DeploymentTag)) {
 
-    $DeploymentTag = "hu2-$coreCommit"
+    $DeploymentTag = "core-$coreCommit"
 }
 
 Write-Host ""

@@ -115,9 +115,9 @@ foreach ($repositoryName in @(
 
         throw "ECR repository '$repositoryName' is not available."
     }
-
-    Write-Host "- emulated ECR repositories and image delivery"
 }
+
+Write-Host "- emulated ECR repositories and image delivery"
 
 #
 # Task contract
