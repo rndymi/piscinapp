@@ -20,7 +20,8 @@ $script:DbPassword = "piscinapp-fake-prod"
 $script:BootstrapAdminUsername = "fake.prod.admin"
 $script:BootstrapAdminPassword = "fake-prod-admin-password"
 
-$script:PublicBaseUrl = "http://localhost:8080"
+$script:PublicPort = 9080
+$script:PublicBaseUrl = "http://localhost:$($script:PublicPort)"
 $script:SecurityIssuer = $script:PublicBaseUrl
 
 $script:ValidationClientId = "piscinapp-validation"

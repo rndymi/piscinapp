@@ -174,6 +174,10 @@ From the piscinapp repository:
     .\infrastructure\scripts\fake-prod\run.ps1
 ```
 
+FAKE_PROD exposes its Nginx public boundary at
+`http://localhost:9080`. The local `piscinapp-core` development service
+can remain running on `http://localhost:8080` while FAKE_PROD executes.
+
 This command:
 
 ```text

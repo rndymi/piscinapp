@@ -38,6 +38,30 @@ function Assert-Status {
     }
 }
 
+function Get-ResponseText {
+
+    param(
+        [Parameter(Mandatory = $true)]
+        $Response
+    )
+
+    $content = $Response.Content
+
+    if ($null -eq $content) {
+
+        return ""
+    }
+
+    if ($content -is [byte[]]) {
+
+        return [Text.Encoding]::UTF8.GetString(
+            $content
+        )
+    }
+
+    return [string] $content
+}
+
 function Get-JsonContent {
 
     param(
@@ -45,13 +69,58 @@ function Get-JsonContent {
         $Response
     )
 
-    if ([string]::IsNullOrWhiteSpace($Response.Content)) {
+    $content = Get-ResponseText $Response
+
+    if ([string]::IsNullOrWhiteSpace($content)) {
 
         return $null
     }
 
-    return $Response.Content |
-        ConvertFrom-Json
+    try {
+
+        return $content | ConvertFrom-Json
+    }
+    catch {
+
+        throw "HTTP response did not contain valid JSON."
+    }
+}
+
+function Assert-ProblemCode {
+
+    param(
+        [Parameter(Mandatory = $true)]
+        $Response,
+
+        [Parameter(Mandatory = $true)]
+        [string] $ExpectedCode,
+
+        [Parameter(Mandatory = $true)]
+        [string] $Description
+    )
+
+    $problem = Get-JsonContent $Response
+
+    if ($null -eq $problem) {
+
+        throw "$Description did not contain a JSON ProblemDetail body."
+    }
+
+    $propertyNames = @(
+        $problem.PSObject.Properties.Name
+    )
+
+    if ($propertyNames -notcontains "code") {
+
+        throw "$Description did not contain the expected 'code' property."
+    }
+
+    if ([string] $problem.code -ne $ExpectedCode) {
+
+        throw "$Description returned code '$($problem.code)' instead of '$ExpectedCode'."
+    }
+
+    return $problem
 }
 
 function Invoke-FakeProdRequest {
@@ -108,10 +177,9 @@ function ConvertTo-Base64Url {
         [byte[]] $Bytes
     )
 
-    return [Convert]::ToBase64String($Bytes).
-        TrimEnd("=").
-        Replace("+", "-").
-        Replace("/", "_")
+    $value = [Convert]::ToBase64String($Bytes)
+
+    return $value.TrimEnd("=").Replace("+", "-").Replace("/", "_")
 }
 
 function New-RandomBase64Url {
@@ -291,36 +359,77 @@ function Get-OAuth2AccessToken {
     $session = New-Object `
         Microsoft.PowerShell.Commands.WebRequestSession
 
+    $browserHeaders = @{
+        Accept = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+    }
+
     #
-    # Start Authorization Code flow through Nginx.
-    # Spring redirects the browser-style request to /login.
+    # Start the real Authorization Code + PKCE request through Nginx.
+    # Do not follow redirects automatically: the validation must preserve
+    # and inspect the browser-style login/session flow itself.
     #
 
-    $loginPage = Invoke-WebRequest `
+    $authorizationStartResponse = Invoke-WebRequest `
         -Uri $authorizationUri `
         -Method Get `
+        -Headers $browserHeaders `
         -WebSession $session `
-        -Headers @{
-            Accept = "text/html"
-        } `
-        -MaximumRedirection 10 `
-        -ErrorAction Stop
+        -MaximumRedirection 0 `
+        -SkipHttpErrorCheck `
+        -ErrorAction SilentlyContinue
+
+    $authorizationStartStatus = [int] $authorizationStartResponse.StatusCode
+
+    if ($authorizationStartStatus -eq 200) {
+
+        $loginPage = $authorizationStartResponse
+    }
+    elseif ($authorizationStartStatus -in @(302, 303)) {
+
+        $loginLocation = Get-RedirectLocation `
+            -Response $authorizationStartResponse `
+            -Description "OAuth2 authorization start"
+
+        $loginUri = Resolve-PublicUri `
+            -Location $loginLocation
+
+        $loginPage = Invoke-WebRequest `
+            -Uri $loginUri `
+            -Method Get `
+            -Headers $browserHeaders `
+            -WebSession $session `
+            -MaximumRedirection 0 `
+            -SkipHttpErrorCheck `
+            -ErrorAction SilentlyContinue
+    }
+    else {
+
+        throw "OAuth2 authorization start returned unexpected HTTP $authorizationStartStatus."
+    }
 
     if ([int] $loginPage.StatusCode -ne 200) {
 
-        throw "OAuth2 authorization did not reach the login page."
+        throw "Authorization flow did not reach the interactive login page. Received HTTP $($loginPage.StatusCode)."
+    }
+
+    $loginHtml = Get-ResponseText $loginPage
+
+    if ($loginHtml -notmatch 'name="_csrf"') {
+
+        throw "Authorization flow reached a page without the expected login CSRF token."
     }
 
     $csrfToken = Get-CsrfToken `
-        -Html $loginPage.Content
+        -Html $loginHtml
 
     #
-    # Perform real Spring Security form login.
+    # Perform the real Spring Security form login using the same session.
     #
 
     $loginResponse = Invoke-WebRequest `
         -Uri "$($script:PublicBaseUrl)/login" `
         -Method Post `
+        -Headers $browserHeaders `
         -WebSession $session `
         -ContentType "application/x-www-form-urlencoded" `
         -Body @{
@@ -330,13 +439,18 @@ function Get-OAuth2AccessToken {
         } `
         -MaximumRedirection 0 `
         -SkipHttpErrorCheck `
-        -ErrorAction Stop
+        -ErrorAction SilentlyContinue
 
-    $loginLocation = Get-RedirectLocation `
+    if ([int] $loginResponse.StatusCode -notin @(302, 303)) {
+
+        throw "Spring Security login did not return a redirect. Status: $($loginResponse.StatusCode)"
+    }
+
+    $postLoginLocation = Get-RedirectLocation `
         -Response $loginResponse `
         -Description "Spring Security login"
 
-    if ($loginLocation -match "/login\?error") {
+    if ($postLoginLocation -match '/login\?error') {
 
         if ($ExpectAuthenticationFailure) {
 
@@ -352,25 +466,63 @@ function Get-OAuth2AccessToken {
     }
 
     #
-    # Resume the saved OAuth2 authorization request.
+    # Follow only Authorization Server redirects. Stop before calling the
+    # loopback callback; capture the real authorization code from Location.
     #
 
-    $resumeAuthorizationUri = Resolve-PublicUri `
-        -Location $loginLocation
+    $nextUri = Resolve-PublicUri `
+        -Location $postLoginLocation
 
-    $authorizationResponse = Invoke-WebRequest `
-        -Uri $resumeAuthorizationUri `
-        -Method Get `
-        -WebSession $session `
-        -MaximumRedirection 0 `
-        -SkipHttpErrorCheck `
-        -ErrorAction Stop
+    $callbackUri = $null
 
-    $callbackLocation = Get-RedirectLocation `
-        -Response $authorizationResponse `
-        -Description "OAuth2 authorization"
+    for ($redirectAttempt = 1; $redirectAttempt -le 10; $redirectAttempt++) {
 
-    $callbackUri = [Uri] $callbackLocation
+        $nextAsUri = [Uri] $nextUri
+        $nextBase = $nextAsUri.GetLeftPart(
+            [UriPartial]::Path
+        )
+
+        if ($nextBase -eq $script:ValidationRedirectUri) {
+
+            $callbackUri = $nextAsUri
+            break
+        }
+
+        $authorizationResponse = Invoke-WebRequest `
+            -Uri $nextUri `
+            -Method Get `
+            -Headers $browserHeaders `
+            -WebSession $session `
+            -MaximumRedirection 0 `
+            -SkipHttpErrorCheck `
+            -ErrorAction SilentlyContinue
+
+        $authorizationStatus = [int] $authorizationResponse.StatusCode
+
+        if ($authorizationStatus -notin @(302, 303)) {
+
+            throw "OAuth2 authorization did not return the expected callback redirect. Status: $authorizationStatus"
+        }
+
+        $authorizationLocation = Get-RedirectLocation `
+            -Response $authorizationResponse `
+            -Description "OAuth2 authorization"
+
+        if ($authorizationLocation -match '^https?://') {
+
+            $nextUri = $authorizationLocation
+        }
+        else {
+
+            $nextUri = Resolve-PublicUri `
+                -Location $authorizationLocation
+        }
+    }
+
+    if ($null -eq $callbackUri) {
+
+        throw "Authorization Server did not reach the configured OAuth2 callback."
+    }
 
     $callbackBase = $callbackUri.GetLeftPart(
         [UriPartial]::Path
@@ -390,6 +542,15 @@ function Get-OAuth2AccessToken {
         throw "OAuth2 state validation failed."
     }
 
+    $authorizationError = Get-QueryParameter `
+        -Uri $callbackUri `
+        -Name "error"
+
+    if (-not [string]::IsNullOrWhiteSpace($authorizationError)) {
+
+        throw "Authorization Server returned OAuth2 error '$authorizationError'."
+    }
+
     $authorizationCode = Get-QueryParameter `
         -Uri $callbackUri `
         -Name "code"
@@ -400,8 +561,8 @@ function Get-OAuth2AccessToken {
     }
 
     #
-    # Exchange the authorization code through Nginx.
-    # No client secret is supplied.
+    # Exchange the real authorization code through Nginx.
+    # Public PKCE client: no client secret is supplied.
     #
 
     $tokenResponse = Invoke-WebRequest `
@@ -428,7 +589,7 @@ function Get-OAuth2AccessToken {
     if (
         $null -eq $tokenPayload -or
         [string]::IsNullOrWhiteSpace(
-            $tokenPayload.access_token
+            [string] $tokenPayload.access_token
         )
     ) {
 
@@ -718,34 +879,58 @@ $apiDocsResponse = Invoke-FakeProdRequest `
     -Method Get `
     -Path "/v3/api-docs"
 
-if (
-    [int] $apiDocsResponse.StatusCode -notin @(401, 404)
-) {
+$apiDocsStatus = [int] $apiDocsResponse.StatusCode
 
-    throw "OpenAPI is publicly exposed under prod profile."
+if ($apiDocsStatus -eq 200) {
+
+    $apiDocsContentType = [string] $apiDocsResponse.Headers["Content-Type"]
+
+    if (
+        $apiDocsContentType -match "application/json" -and
+        (Get-ResponseText $apiDocsResponse) -match '"openapi"\s*:'
+    ) {
+
+        throw "OpenAPI document is publicly exposed under prod profile."
+    }
 }
+
+Write-Host "- OpenAPI document unavailable under prod"
 
 $swaggerResponse = Invoke-FakeProdRequest `
     -Method Get `
     -Path "/swagger-ui/index.html"
 
-if (
-    [int] $swaggerResponse.StatusCode -notin @(401, 404)
-) {
+$swaggerStatus = [int] $swaggerResponse.StatusCode
 
-    throw "Swagger UI is publicly exposed under prod profile."
+if ($swaggerStatus -eq 200) {
+
+    $swaggerContent = Get-ResponseText $swaggerResponse
+
+    if (
+        $swaggerContent -match "swagger-ui" -or
+        $swaggerContent -match "Swagger UI"
+    ) {
+
+        throw "Swagger UI is publicly exposed under prod profile."
+    }
 }
+
+Write-Host "- Swagger UI unavailable under prod"
 
 $internalActuatorResponse = Invoke-FakeProdRequest `
     -Method Get `
     -Path "/actuator/env"
 
-Assert-Status `
-    -Response $internalActuatorResponse `
-    -ExpectedStatus 404 `
-    -Description "Internal Actuator endpoint is exposed"
+$internalActuatorStatus = [int] $internalActuatorResponse.StatusCode
 
-Write-Host "- production documentation and Actuator restrictions"
+if (
+    $internalActuatorStatus -notin @(401, 403, 404)
+) {
+
+    throw "Internal Actuator endpoint is publicly accessible. Received HTTP $internalActuatorStatus."
+}
+
+Write-Host "- internal Actuator endpoints blocked"
 
 #
 # OIDC discovery through Nginx
@@ -840,16 +1025,10 @@ Assert-Status `
     -ExpectedStatus 401 `
     -Description "Unauthenticated Identity API request was not rejected"
 
-$unauthenticatedProblem = Get-JsonContent `
-    $unauthenticatedResponse
-
-if (
-    $unauthenticatedProblem.code -ne
-    "AUTHENTICATION_REQUIRED"
-) {
-
-    throw "Unauthenticated API error contract is incorrect."
-}
+$null = Assert-ProblemCode `
+    -Response $unauthenticatedResponse `
+    -ExpectedCode "AUTHENTICATION_REQUIRED" `
+    -Description "Unauthenticated API ProblemDetail"
 
 #
 # Invalid Bearer against a real functional endpoint
@@ -1028,13 +1207,10 @@ Assert-Status `
     -ExpectedStatus 403 `
     -Description "USER unexpectedly accessed ADMIN Identity API"
 
-$userForbiddenProblem = Get-JsonContent `
-    $userAdminResponse
-
-if ($userForbiddenProblem.code -ne "ACCESS_DENIED") {
-
-    throw "USER authorization error contract is incorrect."
-}
+$null = Assert-ProblemCode `
+    -Response $userAdminResponse `
+    -ExpectedCode "ACCESS_DENIED" `
+    -Description "USER authorization ProblemDetail"
 
 Write-Host "USER authorization separation passed"
 

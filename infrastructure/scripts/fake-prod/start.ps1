@@ -20,6 +20,38 @@ if ($LASTEXITCODE -ne 0) {
     throw "Docker is not running. Start Docker Desktop and try again."
 }
 
+foreach ($requiredPort in @(
+    $script:PublicPort,
+    8081
+)) {
+
+    $portOwners = @(
+        docker ps `
+            --filter "publish=$requiredPort" `
+            --format "{{.Names}}"
+    )
+
+    if ($LASTEXITCODE -ne 0) {
+
+        throw "Could not determine whether FAKE_PROD port $requiredPort is available."
+    }
+
+    $conflictingContainers = @(
+        $portOwners |
+            Where-Object {
+                -not [string]::IsNullOrWhiteSpace($_) -and
+                $_ -notmatch '^floci-ecs-.+-(core|nginx)$'
+            }
+    )
+
+    if ($conflictingContainers.Count -gt 0) {
+
+        $containerNames = $conflictingContainers -join ", "
+
+        throw "FAKE_PROD requires host port $requiredPort, but it is already published by: $containerNames. Stop the conflicting container before running FAKE_PROD."
+    }
+}
+
 docker compose `
     -f $composeFile `
     up `

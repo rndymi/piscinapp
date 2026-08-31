@@ -418,7 +418,7 @@ $taskDefinition = @{
 
                 @{
                     containerPort = 8080
-                    hostPort      = 8080
+                    hostPort      = $script:PublicPort
                     protocol      = "tcp"
                 }
             )
@@ -476,6 +476,61 @@ try {
 
     Write-Host "FAKE_PROD ECS task started:"
     Write-Host $taskArn
+
+    Write-Host ""
+    Write-Host "Waiting for the FAKE_PROD ECS task to be running..."
+    Write-Host ""
+
+    $taskRunning = $false
+
+    for ($attempt = 1; $attempt -le 30; $attempt++) {
+
+        $taskStatus = Get-FakeAwsText -Arguments @(
+            "ecs",
+            "describe-tasks",
+            "--cluster",
+            $script:ClusterName,
+            "--tasks",
+            $taskArn,
+            "--query",
+            "tasks[0].lastStatus",
+            "--output",
+            "text"
+        )
+
+        if ($taskStatus -eq "RUNNING") {
+
+            $taskRunning = $true
+            break
+        }
+
+        if ($taskStatus -eq "STOPPED") {
+
+            $stoppedReason = Get-FakeAwsText -Arguments @(
+                "ecs",
+                "describe-tasks",
+                "--cluster",
+                $script:ClusterName,
+                "--tasks",
+                $taskArn,
+                "--query",
+                "tasks[0].stoppedReason",
+                "--output",
+                "text"
+            )
+
+            throw "FAKE_PROD ECS task failed to start: $stoppedReason"
+        }
+
+        Start-Sleep -Seconds 1
+    }
+
+    if (-not $taskRunning) {
+
+        throw "FAKE_PROD ECS task did not reach RUNNING state in time. Last status: $taskStatus"
+    }
+
+    Write-Host "FAKE_PROD ECS task is running."
 }
 finally {
 
