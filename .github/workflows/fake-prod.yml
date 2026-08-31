@@ -31,6 +31,13 @@ jobs:
           path: piscinapp-core
           token: ${{ secrets.CORE_REPOSITORY_TOKEN }}
 
+      - name: Resolve Core revision
+        working-directory: piscinapp-core
+        shell: bash
+        run: |
+          echo "Requested Core ref: ${{ inputs.core_ref }}"
+          echo "Resolved Core commit: $(git rev-parse HEAD)"
+          
       - name: Set up Java 21
         uses: actions/setup-java@v5
 
