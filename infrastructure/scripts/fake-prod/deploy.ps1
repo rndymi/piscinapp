@@ -352,7 +352,22 @@ $taskDefinition = @{
 
                 @{
                     name  = "PISCINAPP_SECURITY_ISSUER"
-                    value = "http://localhost:8080"
+                    value = $script:SecurityIssuer
+                },
+
+                @{
+                    name  = "PISCINAPP_VALIDATION_CLIENT_ENABLED"
+                    value = "true"
+                },
+
+                @{
+                    name  = "PISCINAPP_VALIDATION_CLIENT_ID"
+                    value = $script:ValidationClientId
+                },
+
+                @{
+                    name  = "PISCINAPP_VALIDATION_CLIENT_REDIRECT_URI"
+                    value = $script:ValidationRedirectUri
                 },
 
                 @{

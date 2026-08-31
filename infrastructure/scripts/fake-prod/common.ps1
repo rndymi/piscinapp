@@ -20,6 +20,15 @@ $script:DbPassword = "piscinapp-fake-prod"
 $script:BootstrapAdminUsername = "fake.prod.admin"
 $script:BootstrapAdminPassword = "fake-prod-admin-password"
 
+$script:PublicBaseUrl = "http://localhost:8080"
+$script:SecurityIssuer = $script:PublicBaseUrl
+
+$script:ValidationClientId = "piscinapp-validation"
+$script:ValidationRedirectUri = "http://127.0.0.1:18080/callback"
+
+$script:ValidationUserUsername = "fake.prod.user"
+$script:ValidationUserPassword = "fake-prod-user-password"
+
 # Credenciales exclusivamente ficticias para el emulador local.
 $env:AWS_ACCESS_KEY_ID = "test"
 $env:AWS_SECRET_ACCESS_KEY = "test"
