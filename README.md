@@ -10,7 +10,7 @@ The ecosystem is divided into independent components for backend services, web a
 
 | Component | Main technology | CI | Quality Gate | Purpose |
 | --- | --- | --- | --- | --- |
-| `piscinapp-core` | Java · Spring Boot · PostgreSQL |  |  | Backend API, business rules, security and persistent state |
+| `piscinapp-core` | Java · Spring Boot · PostgreSQL | [![CI](https://github.com/rndymi/piscinapp-core/actions/workflows/ci.yml/badge.svg?branch=develop)](https://github.com/rndymi/piscinapp-core/actions/workflows/ci.yml) | [![Quality gate status](https://sonarcloud.io/api/project_badges/measure?project=rndymi_piscinapp-core&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=rndymi_piscinapp-core) | Backend API, business rules, security and persistent state |
 | `piscinapp-control` | Angular · TypeScript · Tailwind CSS |  |  | Web administration, planning and supervision |
 | `piscinapp-field` | Java · Android SDK |  |  | Android application for field operations |
 
